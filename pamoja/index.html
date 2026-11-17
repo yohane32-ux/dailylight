@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Pamoja</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0E1512">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pamoja">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  html, body { margin: 0; height: 100%; background: #0E1512; color: #EAF2EE; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; }
+  #app { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; padding-top: env(safe-area-inset-top); box-sizing: border-box; background: #0E1512; opacity: 0; transition: opacity .4s; }
+  #app.ready { opacity: 1; }
+  #splash { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; padding: 24px; background: radial-gradient(circle at 50% 0%, #1A5A43 0%, #0E1512 65%); transition: opacity .4s; }
+  #splash.gone { opacity: 0; pointer-events: none; }
+  #splash img { width: 120px; height: 120px; border-radius: 50%; border: 3px solid rgba(255,255,255,.85); box-shadow: 0 6px 20px rgba(0,0,0,.4); animation: breathe 1.6s ease-in-out infinite; }
+  #splash .name { letter-spacing: 4px; font-weight: 700; opacity: .85; }
+  #splash .msg { max-width: 320px; line-height: 1.5; opacity: .9; font-size: 15px; }
+  @keyframes breathe { 50% { transform: scale(1.06); } }
+</style>
+</head>
+<body>
+<div id="splash">
+  <img src="icon-192.png" alt="Pamoja">
+  <div class="name">PAMOJA</div>
+  <div class="msg" id="msg"></div>
+</div>
+<iframe id="app" title="Pamoja" allow="clipboard-write; vibrate"></iframe>
+<script>
+  // Pamoja launcher: shows the logo icon on phones and opens the Apps Script app full screen.
+  // Links look like:  .../pamoja/?t=<personal token>&a=<Apps Script /exec URL>
+  (function () {
+    var q = new URLSearchParams(location.search);
+    function get(k) { try { return localStorage.getItem('pamoja_' + k); } catch (e) { return null; } }
+    function set(k, v) { try { localStorage.setItem('pamoja_' + k, v); } catch (e) { } }
+    var t = q.get('t') || get('t');
+    var a = q.get('a') || get('a');
+    var okApp = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(a || '');
+    if (q.get('t')) set('t', q.get('t'));
+    if (q.get('a') && okApp) set('a', q.get('a'));
+    var msg = document.getElementById('msg');
+    if (!t || !okApp) {
+      msg.innerHTML = 'Open your personal link from your Pamoja welcome email.<br><br>Fungua kiungo chako binafsi kutoka barua pepe ya karibu ya Pamoja.';
+      document.querySelector('#splash img').style.animation = 'none';
+      return;
+    }
+    var standalone = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+    var f = document.getElementById('app');
+    f.onload = function () { f.classList.add('ready'); document.getElementById('splash').classList.add('gone'); };
+    f.src = a + '?t=' + encodeURIComponent(t) + (standalone ? '&pwa=1' : '');
+    setTimeout(function () { if (!f.classList.contains('ready')) msg.textContent = 'Loading… · Inapakia…'; }, 2500);
+  })();
+</script>
+</body>
+</html>

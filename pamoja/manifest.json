@@ -1,0 +1,14 @@
+{
+  "name": "Pamoja",
+  "short_name": "Pamoja",
+  "description": "Lifestyle companion · Msaidizi wa mtindo wa maisha",
+  "display": "standalone",
+  "scope": "./",
+  "background_color": "#0E1512",
+  "theme_color": "#0E1512",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
