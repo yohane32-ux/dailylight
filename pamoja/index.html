@@ -22,6 +22,16 @@
   #splash .name { letter-spacing: 4px; font-weight: 700; opacity: .85; }
   #splash .msg { max-width: 320px; line-height: 1.5; opacity: .9; font-size: 15px; }
   @keyframes breathe { 50% { transform: scale(1.06); } }
+  /* "Allow notifications?" sheet — shown by the launcher because only the top page can ask the phone */
+  #ask { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; padding: 18px 18px calc(18px + env(safe-area-inset-bottom)); background: #1E1A3A; border-radius: 22px 22px 0 0; box-shadow: 0 -10px 40px rgba(0,0,0,.55); transform: translateY(110%); transition: transform .3s; text-align: center; }
+  #ask.on { transform: none; }
+  #ask .ic { font-size: 44px; }
+  #ask h2 { margin: 6px 0; font-size: 20px; }
+  #ask p { margin: 0 0 14px; font-size: 14px; line-height: 1.5; opacity: .85; }
+  #ask button { display: block; width: 100%; border: 0; border-radius: 999px; padding: 14px; font: 800 16px system-ui, sans-serif; color: #fff; background: #7B61FF; box-shadow: 0 4px 0 #5A43D6; margin-top: 8px; cursor: pointer; }
+  #ask button.no { background: rgba(255,255,255,.1); box-shadow: none; }
+  #dim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 8; display: none; }
+  #dim.on { display: block; }
 </style>
 </head>
 <body>
@@ -31,6 +41,8 @@
   <div class="msg" id="msg"></div>
 </div>
 <iframe id="app" title="Pamoja" allow="clipboard-write; vibrate"></iframe>
+<div id="dim"></div>
+<div id="ask" role="dialog" aria-modal="true"><div class="ic">🔔</div><h2 id="askT"></h2><p id="askP"></p><button id="askYes"></button><button class="no" id="askNo"></button></div>
 <script>
   // Pamoja launcher: shows the logo icon on phones and opens the Apps Script app full screen.
   // Links look like:  .../pamoja/?t=<personal token>&a=<Apps Script /exec URL>
@@ -54,6 +66,67 @@
     f.onload = function () { f.classList.add('ready'); document.getElementById('splash').classList.add('gone'); };
     f.src = a + '?t=' + encodeURIComponent(t) + (standalone ? '&pwa=1' : '');
     setTimeout(function () { if (!f.classList.contains('ready')) msg.textContent = 'Loading… · Inapakia…'; }, 2500);
+
+    // ---- phone notifications (fasting reminders) ----
+    // The app runs inside Google's frame, which can't ask for notifications, so it asks us (the top page).
+    var pushOk = !!(window.Notification && 'serviceWorker' in navigator && 'PushManager' in window);
+    var swReady = null;
+    if ('serviceWorker' in navigator) { try { swReady = navigator.serviceWorker.register('sw.js').then(function () { return navigator.serviceWorker.ready; }); } catch (e) { swReady = null; } }
+    function cfg(o) { // shared with sw.js so a notification knows what to say
+      if (!('caches' in window)) return;
+      caches.open('pamoja-cfg').then(function (c) {
+        return c.match('cfg').then(function (r) { return r ? r.json() : {}; }).catch(function () { return {}; }).then(function (old) {
+          for (var k in o) old[k] = o[k];
+          return c.put('cfg', new Response(JSON.stringify(old), { headers: { 'Content-Type': 'application/json' } }));
+        });
+      }).catch(function () { });
+    }
+    cfg({ a: a, t: t });
+    var fromApp = /^https:\/\/([a-z0-9-]+\.)*(googleusercontent\.com|google\.com)$/;
+    function state(cb) {
+      var s = { pj: 'launcher', type: 'state', supported: pushOk, perm: window.Notification ? Notification.permission : 'unsupported', ios: /iPhone|iPad|iPod/.test(navigator.userAgent), standalone: standalone, sub: false };
+      if (!pushOk || !swReady) { s.supported = false; return cb(s); }
+      swReady.then(function (r) { return r.pushManager.getSubscription(); }).then(function (sub) { s.sub = !!sub; cb(s); }).catch(function () { cb(s); });
+    }
+    function key(b64) { var p = '='.repeat((4 - b64.length % 4) % 4), raw = atob((b64 + p).replace(/-/g, '+').replace(/_/g, '/')), out = new Uint8Array(raw.length); for (var i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; }
+    var askEl = document.getElementById('ask'), dim = document.getElementById('dim');
+    function sheet(on) { askEl.classList.toggle('on', on); dim.classList.toggle('on', on); }
+    function askPerm(cb) { // old Safari uses a callback, new browsers a promise
+      var done = false, fin = function (p) { if (!done) { done = true; cb(p); } };
+      try { var pr = Notification.requestPermission(fin); if (pr && pr.then) pr.then(fin, function () { fin(Notification.permission); }); } catch (e) { fin(Notification.permission); }
+    }
+    function turnOn(d, reply) {
+      var sw = d.lang === 'sw';
+      document.getElementById('askT').textContent = sw ? 'Ruhusu vikumbusho vya Pamoja?' : 'Allow Pamoja reminders?';
+      document.getElementById('askP').textContent = sw ? 'Tutakujulisha mfungo wako unapoanza, ikibaki saa 1, na ukiisha.' : 'We\'ll tell you when your fast starts, when 1 hour is left, and when it\'s done.';
+      document.getElementById('askYes').textContent = sw ? '🔔 Ruhusu' : '🔔 Allow';
+      document.getElementById('askNo').textContent = sw ? 'Si sasa' : 'Not now';
+      sheet(true);
+      document.getElementById('askNo').onclick = function () { sheet(false); reply({ pj: 'launcher', type: 'sub', ok: false, perm: window.Notification ? Notification.permission : 'unsupported' }); };
+      document.getElementById('askYes').onclick = function () {
+        sheet(false);
+        askPerm(function (p) {
+          if (p !== 'granted') return reply({ pj: 'launcher', type: 'sub', ok: false, perm: p });
+          swReady.then(function (r) {
+            return r.pushManager.getSubscription().then(function (old) { return old || r.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key(d.key) }); });
+          }).then(function (sub) { reply({ pj: 'launcher', type: 'sub', ok: true, perm: 'granted', sub: sub.toJSON ? sub.toJSON() : { endpoint: sub.endpoint } }); })
+            .catch(function (e) { reply({ pj: 'launcher', type: 'sub', ok: false, perm: Notification.permission, err: String(e && e.message || e) }); });
+        });
+      };
+    }
+    window.addEventListener('message', function (e) {
+      if (!fromApp.test(e.origin)) return;
+      var d = e.data || {}, src = e.source;
+      if (!d.pamoja || !src) return;
+      var reply = function (o) { try { src.postMessage(o, e.origin); } catch (x) { } };
+      if (d.type === 'hello') state(reply);
+      else if (d.type === 'fast') cfg({ end: Number(d.end) || 0, hours: Number(d.hours) || 0, lang: d.lang === 'sw' ? 'sw' : 'en' });
+      else if (d.type === 'push-on' && pushOk && swReady && d.key) turnOn(d, reply);
+      else if (d.type === 'push-off' && swReady) swReady.then(function (r) { return r.pushManager.getSubscription(); }).then(function (sub) {
+        if (!sub) return reply({ pj: 'launcher', type: 'off' });
+        var ep = sub.endpoint; return sub.unsubscribe().then(function () { reply({ pj: 'launcher', type: 'off', endpoint: ep }); });
+      }).catch(function () { });
+    });
   })();
 </script>
 </body>
